@@ -139,3 +139,18 @@ Frontend URL: `http://localhost:3000`
   - Username: `admin` (or `DEFAULT_ADMIN_USERNAME`)
   - Password: `admin123` (or `DEFAULT_ADMIN_PASSWORD`)
 - If you see `Invalid or expired token`, log in again. Old tokens are auto-cleared on `401`.
+
+## Deployment
+
+This repo is prepared for a single-service Render deployment:
+
+1. Create a MongoDB Atlas database and copy the connection string.
+2. In Render, create a new Blueprint deployment from this GitHub repo.
+3. Set these required environment variables for the Render service:
+   - `MONGO_URI`
+   - `DEFAULT_ADMIN_PASSWORD`
+4. Render will build the React frontend, serve it from the Express backend, and expose the API at `/api`.
+
+Important:
+- In production, the backend will not fall back to in-memory MongoDB if `MONGO_URI` fails.
+- Local frontend development should keep using `frontend/.env` with `REACT_APP_API_URL=http://localhost:5000/api`.

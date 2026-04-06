@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const { connectDB, disconnectDB } = require('./config/db');
@@ -24,6 +25,20 @@ app.use('/api/mappings', require('./routes/mappingRoutes'));
 app.use('/api/dashboard', require('./routes/dashboardRoutes'));
 app.use('/api/marks', require('./routes/markRoutes'));
 app.use('/api/reports', require('./routes/reportRoutes'));
+
+if (process.env.NODE_ENV === 'production') {
+  const frontendBuildPath = path.resolve(__dirname, '..', 'frontend', 'build');
+
+  app.use(express.static(frontendBuildPath));
+
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) {
+      return next();
+    }
+
+    res.sendFile(path.join(frontendBuildPath, 'index.html'));
+  });
+}
 
 app.use(errorHandler);
 
