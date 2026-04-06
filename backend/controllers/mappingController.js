@@ -2,18 +2,20 @@ const Mapping = require('../models/Mapping');
 const CourseOutcome = require('../models/CourseOutcome');
 const ProgramOutcome = require('../models/ProgramOutcome');
 const Subject = require('../models/Subject');
+const { applyOwnerScope, claimOwnership } = require('../utils/ownership');
+
 const getMappings = async (req, res, next) => {
   try {
     const filter = {};
     if (req.query.subjectId) {
-      const cos = await CourseOutcome.find({ subject: req.query.subjectId }).select('_id');
+      const cos = await CourseOutcome.find(applyOwnerScope({ subject: req.query.subjectId }, req.user._id)).select('_id');
       filter.$or = [
         { subject: req.query.subjectId },
         { courseOutcome: { $in: cos.map((co) => co._id) } }
       ];
     }
 
-    const mappings = await Mapping.find(filter)
+    const mappings = await Mapping.find(applyOwnerScope(filter, req.user._id))
       .populate({
         path: 'courseOutcome',
         select: 'code description subject',
@@ -35,12 +37,12 @@ const upsertMapping = async (req, res, next) => {
     if (!courseOutcome || !programOutcome) {
       return res.status(400).json({ message: 'courseOutcome and programOutcome are required' });
     }
-    const coExists = await CourseOutcome.findById(courseOutcome);
-    const poExists = await ProgramOutcome.findById(programOutcome);
+    const coExists = await CourseOutcome.findOne(applyOwnerScope({ _id: courseOutcome }, req.user._id));
+    const poExists = await ProgramOutcome.findOne(applyOwnerScope({ _id: programOutcome }, req.user._id));
     if (!coExists || !poExists) {
       return res.status(404).json({ message: 'Course outcome or program outcome not found' });
     }
-    const subject = await Subject.findById(coExists.subject).select('course');
+    const subject = await Subject.findOne(applyOwnerScope({ _id: coExists.subject }, req.user._id)).select('course');
     if (subject && poExists.course.toString() !== subject.course.toString()) {
       return res.status(400).json({ message: 'Program outcome does not belong to the subject course' });
     }
@@ -50,11 +52,21 @@ const upsertMapping = async (req, res, next) => {
       return res.status(400).json({ message: 'level must be 0, 1, 2, or 3' });
     }
 
-    const mapping = await Mapping.findOneAndUpdate(
-      { courseOutcome, programOutcome },
-      { level: finalLevel, subject: coExists.subject },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
-    );
+    let mapping = await Mapping.findOne(applyOwnerScope({ courseOutcome, programOutcome }, req.user._id));
+    if (mapping) {
+      claimOwnership(mapping, req.user._id);
+      mapping.level = finalLevel;
+      mapping.subject = coExists.subject;
+      await mapping.save();
+    } else {
+      mapping = await Mapping.create({
+        owner: req.user._id,
+        courseOutcome,
+        programOutcome,
+        subject: coExists.subject,
+        level: finalLevel
+      });
+    }
 
     res.status(201).json(mapping);
   } catch (error) {
@@ -64,7 +76,7 @@ const upsertMapping = async (req, res, next) => {
 
 const deleteMapping = async (req, res, next) => {
   try {
-    const mapping = await Mapping.findById(req.params.id);
+    const mapping = await Mapping.findOne(applyOwnerScope({ _id: req.params.id }, req.user._id));
     if (!mapping) return res.status(404).json({ message: 'Mapping not found' });
 
     await Mapping.deleteOne({ _id: mapping._id });
@@ -79,17 +91,23 @@ const getMatrix = async (req, res, next) => {
     const { subjectId } = req.query;
     if (!subjectId) return res.status(400).json({ message: 'subjectId query parameter is required' });
 
-    const subject = await Subject.findById(subjectId).populate('course', 'name code');
+    const subject = await Subject.findOne(applyOwnerScope({ _id: subjectId }, req.user._id)).populate('course', 'name code');
     if (!subject) return res.status(404).json({ message: 'Subject not found' });
 
-    const courseOutcomes = await CourseOutcome.find({ subject: subjectId }).sort({ code: 1 });
-    const programOutcomes = await ProgramOutcome.find({ course: subject.course._id }).sort({ code: 1 });
+    const courseOutcomes = await CourseOutcome.find(applyOwnerScope({ subject: subjectId }, req.user._id)).sort({ code: 1 });
+    const programOutcomes = await ProgramOutcome.find(applyOwnerScope({ course: subject.course._id }, req.user._id)).sort({ code: 1 });
 
-    let mappings = await Mapping.find({ courseOutcome: { $in: courseOutcomes.map((co) => co._id) } });
+    let mappings = await Mapping.find(applyOwnerScope({
+      courseOutcome: { $in: courseOutcomes.map((co) => co._id) }
+    }, req.user._id));
     if (mappings.length === 0 && courseOutcomes.length && programOutcomes.length) {
       const coIds = courseOutcomes.map((co) => co._id);
       const poIds = programOutcomes.map((po) => po._id);
-      const rawMappings = await Mapping.collection.find({ coId: { $in: coIds }, poId: { $in: poIds } }).toArray();
+      const rawMappings = await Mapping.collection.find({
+        coId: { $in: coIds },
+        poId: { $in: poIds },
+        $or: [{ owner: req.user._id }, { owner: { $exists: false } }]
+      }).toArray();
       mappings = rawMappings.map((m) => ({
         _id: m._id,
         courseOutcome: m.coId,

@@ -1,12 +1,14 @@
 const Mark = require('../models/Mark');
 const Subject = require('../models/Subject');
 const CourseOutcome = require('../models/CourseOutcome');
+const { applyOwnerScope, claimOwnership } = require('../utils/ownership');
 
-const recalculateCoAttainment = async (coId) => {
-  const co = await CourseOutcome.findById(coId);
+const recalculateCoAttainment = async (coId, userId) => {
+  const co = await CourseOutcome.findOne(applyOwnerScope({ _id: coId }, userId));
   if (!co) return null;
+  claimOwnership(co, userId);
 
-  const marks = await Mark.find({ courseOutcome: coId }).lean();
+  const marks = await Mark.find(applyOwnerScope({ courseOutcome: coId }, userId)).lean();
   const totalsByStudent = new Map();
 
   marks.forEach((m) => {
@@ -36,7 +38,7 @@ const getMarks = async (req, res, next) => {
     if (req.query.subjectId) filter.subject = req.query.subjectId;
     if (req.query.coId) filter.courseOutcome = req.query.coId;
 
-    const marks = await Mark.find(filter)
+    const marks = await Mark.find(applyOwnerScope(filter, req.user._id))
       .populate('subject', 'name code semester')
       .populate('courseOutcome', 'code description targetPercentage')
       .sort({ createdAt: -1 });
@@ -54,10 +56,10 @@ const createMark = async (req, res, next) => {
       return res.status(400).json({ message: 'studentId, subject, courseOutcome, marks, maxMarks are required' });
     }
 
-    const subjectExists = await Subject.findById(subject);
+    const subjectExists = await Subject.findOne(applyOwnerScope({ _id: subject }, req.user._id));
     if (!subjectExists) return res.status(404).json({ message: 'Subject not found' });
 
-    const coExists = await CourseOutcome.findById(courseOutcome);
+    const coExists = await CourseOutcome.findOne(applyOwnerScope({ _id: courseOutcome }, req.user._id));
     if (!coExists) return res.status(404).json({ message: 'Course outcome not found' });
     if (coExists.subject.toString() !== subject.toString()) {
       return res.status(400).json({ message: 'Course outcome does not belong to the subject' });
@@ -73,6 +75,7 @@ const createMark = async (req, res, next) => {
     }
 
     const entry = await Mark.create({
+      owner: req.user._id,
       studentId: studentId.trim(),
       subject,
       courseOutcome,
@@ -80,7 +83,7 @@ const createMark = async (req, res, next) => {
       maxMarks: maxMarksNum
     });
 
-    await recalculateCoAttainment(courseOutcome);
+    await recalculateCoAttainment(courseOutcome, req.user._id);
     res.status(201).json(entry);
   } catch (error) {
     next(error);
@@ -89,8 +92,9 @@ const createMark = async (req, res, next) => {
 
 const updateMark = async (req, res, next) => {
   try {
-    const mark = await Mark.findById(req.params.id);
+    const mark = await Mark.findOne(applyOwnerScope({ _id: req.params.id }, req.user._id));
     if (!mark) return res.status(404).json({ message: 'Mark entry not found' });
+    claimOwnership(mark, req.user._id);
 
     const previousCoId = mark.courseOutcome.toString();
 
@@ -98,13 +102,13 @@ const updateMark = async (req, res, next) => {
     if (studentId !== undefined) mark.studentId = studentId.trim();
 
     if (subject) {
-      const subjectExists = await Subject.findById(subject);
+      const subjectExists = await Subject.findOne(applyOwnerScope({ _id: subject }, req.user._id));
       if (!subjectExists) return res.status(404).json({ message: 'Subject not found' });
       mark.subject = subject;
     }
 
     if (courseOutcome) {
-      const coExists = await CourseOutcome.findById(courseOutcome);
+      const coExists = await CourseOutcome.findOne(applyOwnerScope({ _id: courseOutcome }, req.user._id));
       if (!coExists) return res.status(404).json({ message: 'Course outcome not found' });
       const subjectToCheck = subject || mark.subject;
       if (subjectToCheck && coExists.subject.toString() !== subjectToCheck.toString()) {
@@ -134,9 +138,9 @@ const updateMark = async (req, res, next) => {
     }
 
     const updated = await mark.save();
-    await recalculateCoAttainment(updated.courseOutcome);
+    await recalculateCoAttainment(updated.courseOutcome, req.user._id);
     if (previousCoId !== updated.courseOutcome.toString()) {
-      await recalculateCoAttainment(previousCoId);
+      await recalculateCoAttainment(previousCoId, req.user._id);
     }
     res.json(updated);
   } catch (error) {
@@ -146,11 +150,11 @@ const updateMark = async (req, res, next) => {
 
 const deleteMark = async (req, res, next) => {
   try {
-    const mark = await Mark.findById(req.params.id);
+    const mark = await Mark.findOne(applyOwnerScope({ _id: req.params.id }, req.user._id));
     if (!mark) return res.status(404).json({ message: 'Mark entry not found' });
 
     await Mark.deleteOne({ _id: mark._id });
-    await recalculateCoAttainment(mark.courseOutcome);
+    await recalculateCoAttainment(mark.courseOutcome, req.user._id);
     res.json({ message: 'Mark deleted' });
   } catch (error) {
     next(error);

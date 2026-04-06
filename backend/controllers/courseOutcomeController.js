@@ -1,10 +1,13 @@
 const CourseOutcome = require('../models/CourseOutcome');
 const Subject = require('../models/Subject');
+const Mapping = require('../models/Mapping');
+const { applyOwnerScope, claimOwnership } = require('../utils/ownership');
+
 const getCourseOutcomes = async (req, res, next) => {
   try {
     const filter = {};
     if (req.query.subjectId) filter.subject = req.query.subjectId;
-    const outcomes = await CourseOutcome.find(filter)
+    const outcomes = await CourseOutcome.find(applyOwnerScope(filter, req.user._id))
       .populate({ path: 'subject', select: 'name code', populate: { path: 'course', select: 'name code' } })
       .sort({ code: 1 });
 
@@ -38,10 +41,11 @@ const createCourseOutcome = async (req, res, next) => {
       return res.status(400).json({ message: 'studentsAchievedTarget cannot exceed totalStudents' });
     }
 
-    const subjectExists = await Subject.findById(subject);
+    const subjectExists = await Subject.findOne(applyOwnerScope({ _id: subject }, req.user._id));
     if (!subjectExists) return res.status(404).json({ message: 'Subject not found' });
 
     const outcome = await CourseOutcome.create({
+      owner: req.user._id,
       subject,
       code,
       description,
@@ -57,12 +61,13 @@ const createCourseOutcome = async (req, res, next) => {
 
 const updateCourseOutcome = async (req, res, next) => {
   try {
-    const outcome = await CourseOutcome.findById(req.params.id);
+    const outcome = await CourseOutcome.findOne(applyOwnerScope({ _id: req.params.id }, req.user._id));
     if (!outcome) return res.status(404).json({ message: 'Course outcome not found' });
+    claimOwnership(outcome, req.user._id);
 
     const { subject, code, description, targetPercentage, totalStudents, studentsAchievedTarget } = req.body;
     if (subject) {
-      const subjectExists = await Subject.findById(subject);
+      const subjectExists = await Subject.findOne(applyOwnerScope({ _id: subject }, req.user._id));
       if (!subjectExists) return res.status(404).json({ message: 'Subject not found' });
       outcome.subject = subject;
     }
@@ -103,10 +108,10 @@ const updateCourseOutcome = async (req, res, next) => {
 
 const deleteCourseOutcome = async (req, res, next) => {
   try {
-    const outcome = await CourseOutcome.findById(req.params.id);
+    const outcome = await CourseOutcome.findOne(applyOwnerScope({ _id: req.params.id }, req.user._id));
     if (!outcome) return res.status(404).json({ message: 'Course outcome not found' });
 
-    await Mapping.deleteMany({ courseOutcome: outcome._id });
+    await Mapping.deleteMany(applyOwnerScope({ courseOutcome: outcome._id }, req.user._id));
     await CourseOutcome.deleteOne({ _id: outcome._id });
 
     res.json({ message: 'Course outcome and related mappings deleted' });

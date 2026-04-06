@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const markSchema = new mongoose.Schema(
   {
+    owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
     studentId: { type: String, required: true, trim: true },
     subject: { type: mongoose.Schema.Types.ObjectId, ref: 'Subject', required: true },
     courseOutcome: { type: mongoose.Schema.Types.ObjectId, ref: 'CourseOutcome', required: true },
@@ -11,6 +12,6 @@ const markSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-markSchema.index({ studentId: 1, subject: 1, courseOutcome: 1, createdAt: -1 });
+markSchema.index({ owner: 1, studentId: 1, subject: 1, courseOutcome: 1, createdAt: -1 }, { sparse: true });
 
 module.exports = mongoose.model('Mark', markSchema);

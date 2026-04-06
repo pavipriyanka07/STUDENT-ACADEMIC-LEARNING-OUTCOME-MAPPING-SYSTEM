@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const courseOutcomeSchema = new mongoose.Schema(
   {
+    owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
     subject: { type: mongoose.Schema.Types.ObjectId, ref: 'Subject', required: true },
     code: { type: String, required: true, uppercase: true, trim: true },
     description: { type: String, required: true, trim: true },
@@ -20,6 +21,6 @@ courseOutcomeSchema.virtual('coAttainmentPercentage').get(function coAttainmentP
 courseOutcomeSchema.set('toJSON', { virtuals: true });
 courseOutcomeSchema.set('toObject', { virtuals: true });
 
-courseOutcomeSchema.index({ subject: 1, code: 1 }, { unique: true });
+courseOutcomeSchema.index({ owner: 1, subject: 1, code: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model('CourseOutcome', courseOutcomeSchema);

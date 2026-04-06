@@ -4,6 +4,7 @@ const CourseOutcome = require('../models/CourseOutcome');
 const ProgramOutcome = require('../models/ProgramOutcome');
 const Mapping = require('../models/Mapping');
 const { getAttainmentPercentage, getContributionLevelFromPercentage } = require('../utils/attainment');
+const { applyOwnerScope } = require('../utils/ownership');
 
 const getLevelLabel = (level) => {
   if (level === 3) return 'High';
@@ -14,11 +15,11 @@ const getLevelLabel = (level) => {
 const getReports = async (req, res, next) => {
   try {
     const [courses, subjects, courseOutcomes, programOutcomes, mappings] = await Promise.all([
-      Course.find().select('_id name code department duration').lean(),
-      Subject.find().select('_id name code semester credits course').lean(),
-      CourseOutcome.find().select('_id code description subject totalStudents studentsAchievedTarget').lean(),
-      ProgramOutcome.find().select('_id code description course').lean(),
-      Mapping.find().select('_id courseOutcome programOutcome level').lean()
+      Course.find(applyOwnerScope({}, req.user._id)).select('_id name code department duration').lean(),
+      Subject.find(applyOwnerScope({}, req.user._id)).select('_id name code semester credits course').lean(),
+      CourseOutcome.find(applyOwnerScope({}, req.user._id)).select('_id code description subject totalStudents studentsAchievedTarget').lean(),
+      ProgramOutcome.find(applyOwnerScope({}, req.user._id)).select('_id code description course').lean(),
+      Mapping.find(applyOwnerScope({}, req.user._id)).select('_id courseOutcome programOutcome level').lean()
     ]);
 
     const subjectById = {};
